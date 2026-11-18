@@ -36,6 +36,22 @@
 
 %hook UnifiedField
 
+- (BOOL)resignFirstResponder {
+    SFCapsuleView *capsule = CapsuleOf(self);
+    LOG(@"resignFirstResponder before: expanded %d extra %.1f capsule %p accessory %@ hidden %d\n%@",
+        self.fub_expanded, self.fub_extra, capsule, NSStringFromClass(capsule.accessoryView.class),
+        capsule.accessoryView.hidden,
+        [[[NSThread callStackSymbols] subarrayWithRange:NSMakeRange(1, 12)] componentsJoinedByString:@"\n"]);
+    BOOL resigned = %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SFCapsuleView *c = CapsuleOf(self);
+        LOG(@"resignFirstResponder next turn: resigned %d firstResponder %d expanded %d extra %.1f capsule %p window %p accessory hidden %d alpha %.1f superview %p",
+            resigned, self.isFirstResponder, self.fub_expanded, self.fub_extra, c, c.window,
+            c.accessoryView.hidden, c.accessoryView.alpha, c.accessoryView.superview);
+    });
+    return resigned;
+}
+
 - (void)setText:(NSString *)text {
     LOG(@"setText \"%@\" (was %lu chars)\n%@", text, (unsigned long)self.text.length,
         [[[NSThread callStackSymbols] subarrayWithRange:NSMakeRange(1, 10)] componentsJoinedByString:@"\n"]);

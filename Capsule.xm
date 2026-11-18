@@ -1,7 +1,68 @@
 #import "SafariFullURL.h"
+#import <objc/runtime.h>
+#import <version.h>
 
-// Safari's side: the capsule grows upward, its keyboard backdrop follows, the voice
-// search button goes away and the clear button moves next to the last line.
+// Safari's side: the capsule grows (upward at the bottom, downward at the top, where the page
+// below it moves too), the keyboard backdrop of a bottom capsule follows, the voice search
+// button goes away and the clear button moves next to the last line.
+
+static const void *kBackingKey = &kBackingKey; // solid background we add to a top capsule
+static const void *kHiddenKey = &kHiddenKey;   // set on the Cancel button when we hid it
+
+// The top capsule currently shows our full-width chrome (solid background, no Cancel).
+BOOL CapsuleChromeHidden(SFCapsuleView *capsule) {
+    UIView *backing = objc_getAssociatedObject(capsule, kBackingKey);
+    return backing && !backing.hidden;
+}
+
+// Empty space is the list's table view itself being hit: a row, a section title or the
+// gap between sections hits a cell or a header view on top of it. (Elsewhere, such as the
+// start page or a web page, Safari already cancels on a tap outside the capsule.)
+static BOOL IsBlankSpace(UIView *view) {
+    return [view isKindOfClass:UITableView.class];
+}
+
+// While the Cancel button is hidden, a tap on empty space below the capsule (nothing
+// there: no row, no text, no button) cancels the editing, like pressing the button.
+@interface FUBBlankTapHandler : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, weak) SFCapsuleView *capsule;
+@property (nonatomic, strong) UITapGestureRecognizer *recognizer;
+@end
+
+@implementation FUBBlankTapHandler
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
+    return IsBlankSpace(touch.view);
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
+}
+
+- (void)tapped:(UITapGestureRecognizer *)tap {
+    UIView *cancel = self.capsule.accessoryView; // hidden, but still wired to Safari's cancel
+    if ([cancel isKindOfClass:UIControl.class]) [(UIControl *)cancel sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+@end
+
+// Keep a tap recognizer on the capsule's window while its Cancel button is hidden.
+static void UpdateBlankTap(SFCapsuleView *capsule, BOOL active) {
+    static const void *kHandlerKey = &kHandlerKey;
+    UIWindow *window = capsule.window;
+    FUBBlankTapHandler *handler = objc_getAssociatedObject(window, kHandlerKey);
+    if (!handler) {
+        if (!active || !window) return;
+        handler = [FUBBlankTapHandler new];
+        handler.recognizer = [[UITapGestureRecognizer alloc] initWithTarget:handler action:@selector(tapped:)];
+        handler.recognizer.delegate = handler;
+        handler.recognizer.cancelsTouchesInView = NO;
+        [window addGestureRecognizer:handler.recognizer];
+        objc_setAssociatedObject(window, kHandlerKey, handler, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    handler.capsule = capsule;
+    handler.recognizer.enabled = active;
+}
 
 %hook SFCapsuleView
 
@@ -13,11 +74,57 @@
         CGRect bounds = self.bounds;
         bounds.size.height = height;
         CGPoint center = self.center;
-        center.y -= grow / 2; // grow upward, keep the bottom edge
+        // Keep the edge toward the screen edge: grow upward at the bottom, downward at the top.
+        center.y += CapsuleAtTop(self) ? grow / 2 : -grow / 2;
         self.bounds = bounds;
         self.center = center;
     }
     %orig;
+
+    // Single Tab layout, while the URL is unfolded (even when it is back to one line, so
+    // nothing jumps as lines come and go): Safari's capsule background is translucent, so
+    // the page below and the edge of the stock one-line bar show through the taller
+    // capsule. Swap it for a solid fill of the same tone, and hide the Cancel button
+    // (tapping the page below cancels); both come back afterwards.
+    BOOL unfolded = CapsuleUnfoldedAtTop(self);
+
+    // iOS 15 has no -_backgroundFrame / -_boundsForContent to hook (see below): its layout
+    // leaves room for the Cancel button even when hidden, so give the width back by hand.
+    if (unfolded && !IS_IOS_OR_NEWER(iOS_16_0)) {
+        self.backgroundView.frame = self.bounds;
+        self.contentContainer.frame = self.bounds;
+    }
+
+    UIView *backing = objc_getAssociatedObject(self, kBackingKey);
+    if (unfolded) {
+        if (!backing) {
+            backing = [UIView new];
+            backing.userInteractionEnabled = NO;
+            objc_setAssociatedObject(self, kBackingKey, backing, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [self insertSubview:backing atIndex:0];
+        }
+        backing.hidden = NO;
+        backing.backgroundColor = UIColor.systemGray5Color;
+        backing.frame = self.backgroundView.frame; // wherever Safari put the stock background
+        backing.layer.cornerRadius = self.backgroundCornerRadius;
+        backing.layer.cornerCurve = kCACornerCurveContinuous;
+        self.backgroundView.hidden = YES;
+    } else if (backing && !backing.hidden) {
+        backing.hidden = YES;
+        self.backgroundView.hidden = NO;
+    }
+
+    UIView *accessory = self.accessoryView;
+    if (unfolded) {
+        if (accessory && !accessory.hidden) {
+            accessory.hidden = YES;
+            objc_setAssociatedObject(accessory, kHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    } else if ([objc_getAssociatedObject(accessory, kHiddenKey) boolValue]) {
+        accessory.hidden = NO;
+        objc_setAssociatedObject(accessory, kHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    UpdateBlankTap(self, unfolded);
 }
 
 // iOS 16+: the background and content frames come from these two methods, which ignore
@@ -26,17 +133,29 @@
 // skips a method that does not exist, so these simply stay inactive there.
 - (CGRect)_backgroundFrame {
     CGRect frame = %orig;
-    return GrownFieldForCapsule(self) ? self.bounds : frame;
+    return GrownFieldForCapsule(self) || CapsuleUnfoldedAtTop(self) ? self.bounds : frame;
 }
 
 - (CGRect)_boundsForContent {
     CGRect frame = %orig;
-    return GrownFieldForCapsule(self) ? self.bounds : frame;
+    return GrownFieldForCapsule(self) || CapsuleUnfoldedAtTop(self) ? self.bounds : frame;
 }
 
 %end
 
 %hook SFCapsuleCollectionView
+
+// Single Tab layout: make Safari itself see a taller capsule, so it moves the page below
+// it (the bottom capsule grows over the page instead, see SFCapsuleView above).
+// iOS 16+ takes a third argument; iOS 15 has only the two-argument form (the hooking
+// library skips whichever one the running iOS does not have).
+- (double)_selectedCapsuleHeightForWidth:(double)width state:(long long)state ignoringKeyboard:(BOOL)ignoring {
+    return %orig + gTopExtra;
+}
+
+- (double)_selectedCapsuleHeightForWidth:(double)width state:(long long)state {
+    return %orig + gTopExtra;
+}
 
 - (void)_layOutKeyboardBackdrop {
     %orig;

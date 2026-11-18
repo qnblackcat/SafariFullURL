@@ -32,6 +32,7 @@ void FUBLog(NSString *format, ...) {
 #endif
 
 CGFloat gExtra = 0;
+CGFloat gTopExtra = 0;
 BOOL gUpdating = NO;
 
 // The URL field if it is being edited and currently grown, otherwise nil.
@@ -159,28 +160,55 @@ SFCapsuleView *CapsuleOf(UIView *view) {
     return (SFCapsuleView *)view;
 }
 
+// The capsule sits in the upper half of the window (Single Tab layout): it grows downward.
+// Growing never takes its center across the middle of the window (at most a third of the
+// window), so the answer does not flip while it grows.
+BOOL CapsuleAtTop(SFCapsuleView *capsule) {
+    UIWindow *window = capsule.window;
+    if (!window) return NO;
+    CGRect frame = [capsule convertRect:capsule.bounds toView:window];
+    return CGRectGetMidY(frame) < window.bounds.size.height / 2;
+}
+
+// A capsule at the top whose URL is unfolded (one line or several): it hides the Cancel
+// button and takes its room.
+BOOL CapsuleUnfoldedAtTop(SFCapsuleView *capsule) {
+    UIView *content = capsule.contentView;
+    if (![content isKindOfClass:%c(SFCapsuleURLField)]) return NO;
+    UITextField *textField = ((SFCapsuleURLField *)content).textField;
+    if (![textField isKindOfClass:%c(UnifiedField)] || !textField.isFirstResponder) return NO;
+    return ((UnifiedField *)textField).fub_expanded && CapsuleAtTop(capsule);
+}
+
 // Stock height of the one-line capsule (Dynamic Type and Bold Text change it).
+// Measured from the capsule the first time it is asked for, while the field is still one
+// line: the first line is positioned from this before the field ever grows.
 CGFloat BaseHeight(UnifiedField *field) {
+    if (field.fub_baseHeight <= 0 && field.fub_extra <= 0) {
+        CGFloat height = CapsuleOf(field).bounds.size.height;
+        if (height > 0) {
+            field.fub_baseHeight = height;
+            LOG(@"base height %.1f (measured on first use)", height);
+        }
+    }
     return field.fub_baseHeight > 0 ? field.fub_baseHeight : kBaseHeight;
 }
 
-// Gap above the first line, so it sits where the stock single line is centered.
+// Gap above the first line, so it sits where the stock single line is: the position UIKit
+// gave it while the URL was folded, or centered in the one-line capsule until it has.
 CGFloat TopPad(UnifiedField *field) {
-    return (BaseHeight(field) - ceil(field.font.lineHeight)) / 2;
+    if (field.fub_stockPad > 0) return field.fub_stockPad;
+    return (BaseHeight(field) - field.font.lineHeight) / 2;
 }
 
-// Only the portrait, bottom-of-screen address bar grows (upward). In landscape or with
-// the bar at the top, growing upward would run off screen, so keep stock behaviour.
+// Portrait only: the bottom capsule grows upward, the top one (Single Tab layout) downward.
+// In landscape, keep stock behaviour.
 static BOOL ShouldGrow(UnifiedField *field) {
     UIWindow *window = field.window;
     if (!window) return NO;
     CGSize size = window.bounds.size;
     if (size.width > size.height) return NO;
-    SFCapsuleView *capsule = CapsuleOf(field);
-    if (!capsule) return NO;
-    // The bottom edge stays put while the capsule grows, so this does not flip.
-    CGRect frame = [capsule convertRect:capsule.bounds toView:window];
-    return CGRectGetMaxY(frame) > size.height / 2;
+    return CapsuleOf(field) != nil;
 }
 
 // Resize everything around the field after the number of lines changed.
@@ -191,13 +219,25 @@ void ApplyExtra(UnifiedField *field, CGFloat extra) {
         field.fub_baseHeight = capsule.bounds.size.height;
         LOG(@"base height %.1f", field.fub_baseHeight);
     }
+    // The keyboard backdrop and the input accessory only follow a capsule at the bottom.
+    BOOL atTop = CapsuleAtTop(capsule);
     field.fub_extra = extra;
-    gExtra = extra;
+    gExtra = atTop ? 0 : extra;
+    gTopExtra = atTop ? extra : 0;
 
     UIView *collection = capsule.superview;
+    if (atTop && [collection isKindOfClass:%c(SFCapsuleCollectionView)]) {
+        [(SFCapsuleCollectionView *)collection invalidateHeightForCapsuleContentView:capsule.contentView];
+        // The page below only moves once the browser's root view lays out again.
+        UIResponder *responder = collection;
+        while (responder && ![responder isKindOfClass:%c(BrowserRootViewController)]) responder = responder.nextResponder;
+        UIView *root = ((UIViewController *)responder).viewIfLoaded;
+        [root setNeedsLayout];
+        [root layoutIfNeeded];
+    }
 
     UIView *accessory = field.inputAccessoryView;
-    if ([accessory isKindOfClass:%c(SFCapsuleInputAccessorySpacerView)]) {
+    if (!atTop && [accessory isKindOfClass:%c(SFCapsuleInputAccessorySpacerView)]) {
         SFCapsuleInputAccessorySpacerView *spacer = (SFCapsuleInputAccessorySpacerView *)accessory;
         static const void *kBaseKey = &kBaseKey;
         NSNumber *base = objc_getAssociatedObject(spacer, kBaseKey);
@@ -365,6 +405,7 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
     if (fe.bounds.size.width <= 0) return;
 
     gUpdating = YES;
+    BOOL remeasure = NO;
     if (!ShouldGrow(field)) {
         if (field.fub_extra > 0) ApplyExtra(field, 0);
         SetWrapping(field, fe, NO);
@@ -405,6 +446,7 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
                 // _applyCorrectTextContainerSize hook out. Wrap again.
                 SetWrapping(field, fe, YES);
                 LogGeometry(@"grown", field, fe);
+                remeasure = YES;
             }
             if (ScrollsVertically(field)) {
                 fe.contentSize = fe.contentSize; // re-applied through our setContentSize: hook
@@ -413,4 +455,16 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
         }
     }
     gUpdating = NO;
+
+    // Resizing the capsule can change the width the text wraps at (the top capsule takes
+    // the Cancel button's room when it unfolds), so the line count just measured may be
+    // stale: measure once more. It settles as soon as the height stops changing.
+    if (remeasure) {
+        dispatch_async(dispatch_get_main_queue(), ^{ UpdateFieldEditor(fe); });
+    }
+
+    // Unfolding to a line count that does not change the height still switches the top
+    // capsule's chrome (background, Cancel button); lay it out again once, not on every pass.
+    SFCapsuleView *capsule = CapsuleOf(field);
+    if (capsule && CapsuleChromeHidden(capsule) != CapsuleUnfoldedAtTop(capsule)) [capsule setNeedsLayout];
 }

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Restart Safari so the tweak loads on next open. launchd relaunches it on demand.
+killall -TERM MobileSafari 2>/dev/null
+exit 0

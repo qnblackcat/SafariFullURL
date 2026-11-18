@@ -83,6 +83,35 @@ static NSArray<UITextSelectionRect *> *FillLineGaps(NSArray<UITextSelectionRect 
     return result;
 }
 
+// Wrapped text comes back as several rects per line (the text, then a small piece at the
+// line end) that do not start and end at the same height: the highlight gets a step at the
+// end of the line. Give every rect of one line the vertical extent of all of them together.
+static NSArray<UITextSelectionRect *> *AlignLineRects(NSArray<UITextSelectionRect *> *rects) {
+    if (rects.count < 2) return rects;
+    NSMutableArray<UITextSelectionRect *> *result = [NSMutableArray arrayWithCapacity:rects.count];
+    for (UITextSelectionRect *selectionRect in rects) {
+        CGRect rect = selectionRect.rect;
+        CGFloat top = CGRectGetMinY(rect), bottom = CGRectGetMaxY(rect);
+        for (UITextSelectionRect *other in rects) {
+            CGRect otherRect = other.rect;
+            // Same line when they overlap by more than half of the shorter one.
+            CGFloat overlap = MIN(bottom, CGRectGetMaxY(otherRect)) - MAX(top, CGRectGetMinY(otherRect));
+            if (overlap > MIN(rect.size.height, otherRect.size.height) / 2) {
+                top = MIN(top, CGRectGetMinY(otherRect));
+                bottom = MAX(bottom, CGRectGetMaxY(otherRect));
+            }
+        }
+        if (fabs(top - CGRectGetMinY(rect)) > 0.01 || fabs(bottom - CGRectGetMaxY(rect)) > 0.01) {
+            rect.origin.y = top;
+            rect.size.height = bottom - top;
+            [result addObject:[[FUBSelectionRect alloc] initWithRect:rect base:selectionRect]];
+        } else {
+            [result addObject:selectionRect];
+        }
+    }
+    return result;
+}
+
 // Whether the whole (non-empty) text of the field is selected.
 static BOOL SelectsAll(UITextField *field) {
     UITextRange *selection = field.selectedTextRange;
@@ -113,6 +142,10 @@ static BOOL SelectsAll(UITextField *field) {
 - (CGFloat)fub_baseHeight { return [objc_getAssociatedObject(self, @selector(fub_baseHeight)) doubleValue]; }
 %new(v@:d)
 - (void)setFub_baseHeight:(CGFloat)value { objc_setAssociatedObject(self, @selector(fub_baseHeight), @(value), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+%new(d@:)
+- (CGFloat)fub_stockPad { return [objc_getAssociatedObject(self, @selector(fub_stockPad)) doubleValue]; }
+%new(v@:d)
+- (void)setFub_stockPad:(CGFloat)value { objc_setAssociatedObject(self, @selector(fub_stockPad), @(value), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 %new(B@:)
 - (BOOL)fub_wrapped { return [objc_getAssociatedObject(self, @selector(fub_wrapped)) boolValue]; }
 %new(v@:B)
@@ -136,6 +169,7 @@ static BOOL SelectsAll(UITextField *field) {
     if (!wasFirstResponder) {
         self.fub_expanded = NO;
         self.fub_sawSelectAll = NO;
+        self.fub_stockPad = 0; // measured again while folded (font size may have changed)
     }
     BOOL became = %orig;
     if (became && !wasFirstResponder) {
@@ -170,6 +204,8 @@ static BOOL SelectsAll(UITextField *field) {
         self.fub_expanded = NO;
         self.fub_sawSelectAll = NO;
         if (self.fub_extra > 0) ApplyExtra(self, 0);
+        SFCapsuleView *capsule = CapsuleOf(self);
+        if (capsule && CapsuleChromeHidden(capsule)) [capsule setNeedsLayout]; // give Cancel back
     }
     return resigned;
 }
@@ -272,6 +308,7 @@ static void UnfoldForMenu(UITextInteractionAssistant *assistant) {
 // UITextField forwards here too, so this covers whoever draws the selection.
 - (NSArray *)selectionRectsForRange:(UITextRange *)range {
     NSArray *rects = %orig;
+    if (WrappedFieldInEditor(self)) rects = AlignLineRects(rects);
     UnifiedField *field = GrownFieldInEditor(self);
     return field ? FillLineGaps(rects, ceil(field.font.lineHeight / 2)) : rects;
 }
@@ -306,7 +343,13 @@ static void UnfoldForMenu(UITextInteractionAssistant *assistant) {
 - (CGPoint)textContainerOriginForTextAlignment:(long long)alignment {
     CGPoint origin = %orig;
     UnifiedField *field = WrappedFieldInEditor(self);
-    if (field) origin.y = TopPad(field);
+    if (field) {
+        if (field.isFirstResponder && !field.fub_expanded) {
+            field.fub_stockPad = origin.y; // folded: one line, UIKit's own position is the stock one
+        } else {
+            origin.y = TopPad(field);
+        }
+    }
     return origin;
 }
 

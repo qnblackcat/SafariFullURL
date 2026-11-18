@@ -1,0 +1,6 @@
+#!/bin/sh
+# On removal, restart Safari so the now-deleted dylib is dropped.
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    killall -TERM MobileSafari 2>/dev/null
+fi
+exit 0
