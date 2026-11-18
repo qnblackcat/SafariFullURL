@@ -35,9 +35,41 @@ CGFloat gExtra = 0;
 CGFloat gTopExtra = 0;
 BOOL gUpdating = NO;
 
+// The field has focus, or lost it only because the keyboard was dragged away while
+// Safari is still editing (suggestions and Cancel stay): it keeps its unfolded look.
+BOOL IsEditing(UnifiedField *field) {
+    return field.isFirstResponder || field.fub_keptOpen;
+}
+
+// A finger is dragging a scroll view other than the field's own editor: UIKit dismisses
+// the keyboard on drag, and that is what resigns the field.
+BOOL KeyboardDismissDragInProgress(UIWindow *window) {
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:window];
+    while (stack.count) {
+        UIView *view = stack.lastObject;
+        [stack removeLastObject];
+        if ([view isKindOfClass:%c(UIFieldEditor)]) continue;
+        if ([view isKindOfClass:UIScrollView.class] && (((UIScrollView *)view).isDragging || ((UIScrollView *)view).isTracking)) return YES;
+        [stack addObjectsFromArray:view.subviews];
+    }
+    return NO;
+}
+
+// Editing really ended (Cancel, a tapped suggestion, a new text): fold back to stock.
+void EndKeptOpen(UnifiedField *field) {
+    if (!field.fub_keptOpen) return;
+    field.fub_keptOpen = NO;
+    field.fub_expanded = NO;
+    field.fub_sawSelectAll = NO;
+    if (field.fub_extra > 0) ApplyExtra(field, 0);
+    SFCapsuleView *capsule = CapsuleOf(field);
+    [capsule setNeedsLayout];
+    UpdateFieldEditor((UIFieldEditor *)[field _fieldEditor]);
+}
+
 // The URL field if it is being edited and currently grown, otherwise nil.
 UnifiedField *GrownField(UITextField *tf) {
-    if (![tf isKindOfClass:%c(UnifiedField)] || !tf.isFirstResponder) return nil;
+    if (![tf isKindOfClass:%c(UnifiedField)] || !IsEditing((UnifiedField *)tf)) return nil;
     UnifiedField *field = (UnifiedField *)tf;
     return field.fub_extra > 0 ? field : nil;
 }
@@ -49,7 +81,7 @@ UnifiedField *GrownFieldInEditor(UIFieldEditor *fe) {
 // The URL field being edited with wrapping on, grown or still on one line.
 UnifiedField *WrappedFieldInEditor(UIFieldEditor *fe) {
     UITextField *tf = MSHookIvar<UITextField *>(fe, "_textField");
-    if (![tf isKindOfClass:%c(UnifiedField)] || !tf.isFirstResponder) return nil;
+    if (![tf isKindOfClass:%c(UnifiedField)] || !IsEditing((UnifiedField *)tf)) return nil;
     UnifiedField *field = (UnifiedField *)tf;
     return field.fub_wrapped ? field : nil;
 }
@@ -176,7 +208,7 @@ BOOL CapsuleUnfoldedAtTop(SFCapsuleView *capsule) {
     UIView *content = capsule.contentView;
     if (![content isKindOfClass:%c(SFCapsuleURLField)]) return NO;
     UITextField *textField = ((SFCapsuleURLField *)content).textField;
-    if (![textField isKindOfClass:%c(UnifiedField)] || !textField.isFirstResponder) return NO;
+    if (![textField isKindOfClass:%c(UnifiedField)] || !IsEditing((UnifiedField *)textField)) return NO;
     return ((UnifiedField *)textField).fub_expanded && CapsuleAtTop(capsule);
 }
 
@@ -409,7 +441,7 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
     if (!ShouldGrow(field)) {
         if (field.fub_extra > 0) ApplyExtra(field, 0);
         SetWrapping(field, fe, NO);
-    } else if (field.isFirstResponder && !field.fub_expanded) {
+    } else if (field.isFirstResponder && !field.fub_expanded && !field.fub_keptOpen) {
         // Like Safari 27.3: the first tap selects the URL and keeps the one-line field;
         // it unfolds on the second tap or once the selection changes (typing, cursor
         // moves). Wrapping stays on, with the container one row tall (SetWrapping), so
@@ -418,7 +450,7 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
         if (field.fub_extra > 0) ApplyExtra(field, 0);
         if (!CGPointEqualToPoint(fe.contentOffset, CGPointZero)) fe.contentOffset = CGPointZero;
         LogGeometry(@"collapsed", field, fe);
-    } else if (!field.isFirstResponder) {
+    } else if (!IsEditing(field)) {
         // Only the field being edited grows; layout passes after editing ended must not
         // grow it (and the keyboard backdrop) again.
         SetWrapping(field, fe, YES);

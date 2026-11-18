@@ -40,6 +40,11 @@ static BOOL IsBlankSpace(UIView *view) {
 }
 
 - (void)tapped:(UITapGestureRecognizer *)tap {
+    UIView *content = self.capsule.contentView;
+    if ([content isKindOfClass:%c(SFCapsuleURLField)]) {
+        UITextField *tf = ((SFCapsuleURLField *)content).textField;
+        if ([tf isKindOfClass:%c(UnifiedField)]) EndKeptOpen((UnifiedField *)tf);
+    }
     UIView *cancel = self.capsule.accessoryView; // hidden, but still wired to Safari's cancel
     if ([cancel isKindOfClass:UIControl.class]) [(UIControl *)cancel sendActionsForControlEvents:UIControlEventTouchUpInside];
 }

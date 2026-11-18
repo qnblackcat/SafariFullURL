@@ -32,6 +32,7 @@ FUB_HIDDEN void FUBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 @property (nonatomic, strong) NSParagraphStyle *fub_savedParagraphStyle;
 @property (nonatomic, assign) BOOL fub_expanded;      // second tap (or an edit) unfolded the full URL
 @property (nonatomic, assign) BOOL fub_sawSelectAll;  // Safari selected the whole URL after focusing
+@property (nonatomic, assign) BOOL fub_keptOpen;      // keyboard dragged away: field lost focus but Safari still edits, stay unfolded
 - (UIScrollView *)_fieldEditor;
 @end
 
@@ -79,6 +80,9 @@ FUB_HIDDEN extern CGFloat gExtra;   // extra height of the field being edited (b
 FUB_HIDDEN extern CGFloat gTopExtra; // the same for a capsule at the top of the screen
 FUB_HIDDEN extern BOOL gUpdating;   // caret rect queries can lay out again and call back into us
 
+FUB_HIDDEN BOOL IsEditing(UnifiedField *field);
+FUB_HIDDEN BOOL KeyboardDismissDragInProgress(UIWindow *window);
+FUB_HIDDEN void EndKeptOpen(UnifiedField *field);
 FUB_HIDDEN UnifiedField *GrownField(UITextField *tf);
 FUB_HIDDEN UnifiedField *GrownFieldInEditor(UIFieldEditor *fe);
 FUB_HIDDEN UnifiedField *WrappedFieldInEditor(UIFieldEditor *fe);

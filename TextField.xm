@@ -162,10 +162,27 @@ static BOOL SelectsAll(UITextField *field) {
 - (BOOL)fub_sawSelectAll { return [objc_getAssociatedObject(self, @selector(fub_sawSelectAll)) boolValue]; }
 %new(v@:B)
 - (void)setFub_sawSelectAll:(BOOL)value { objc_setAssociatedObject(self, @selector(fub_sawSelectAll), @(value), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+%new(B@:)
+- (BOOL)fub_keptOpen { return [objc_getAssociatedObject(self, @selector(fub_keptOpen)) boolValue]; }
+%new(v@:B)
+- (void)setFub_keptOpen:(BOOL)value { objc_setAssociatedObject(self, @selector(fub_keptOpen), @(value), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 %property (nonatomic, strong) NSParagraphStyle *fub_savedParagraphStyle;
+
+// Safari writes the text again when editing ends (Cancel, a tapped suggestion).
+- (void)setText:(NSString *)text {
+    %orig;
+    if (self.fub_keptOpen && !self.isFirstResponder) EndKeptOpen(self);
+}
 
 - (BOOL)becomeFirstResponder {
     BOOL wasFirstResponder = self.isFirstResponder;
+    if (self.fub_keptOpen && !wasFirstResponder) {
+        // Back from a dragged-away keyboard: still the same editing session, stay unfolded.
+        self.fub_keptOpen = NO;
+        BOOL became = %orig;
+        if (became) UpdateFieldEditor((UIFieldEditor *)[self _fieldEditor]);
+        return became;
+    }
     if (!wasFirstResponder) {
         self.fub_expanded = NO;
         self.fub_sawSelectAll = NO;
@@ -199,7 +216,17 @@ static BOOL SelectsAll(UITextField *field) {
 }
 
 - (BOOL)resignFirstResponder {
+    // Dragging the suggestions dismisses the keyboard, but Safari keeps editing (list and
+    // Cancel stay): keep the unfolded field instead of folding it to a broken one-liner.
+    BOOL keepOpen = self.isFirstResponder && self.fub_expanded && self.window && KeyboardDismissDragInProgress(self.window);
+    // Resigning lays the field out again from inside %orig, before it returns: the flag
+    // has to be up by then or that layout folds the field.
+    if (keepOpen) self.fub_keptOpen = YES;
     BOOL resigned = %orig;
+    if (keepOpen && resigned) return resigned;
+    if (keepOpen) self.fub_keptOpen = NO; // resigning failed, nothing to keep
+    else if (self.fub_keptOpen) return resigned; // second resign of the same dismissal
+    self.fub_keptOpen = NO;
     if (resigned) {
         self.fub_expanded = NO;
         self.fub_sawSelectAll = NO;
