@@ -300,12 +300,12 @@ static void SetWrapping(UnifiedField *field, UIFieldEditor *fe, BOOL wrap) {
             field.fub_savedLineBreakMode = container.lineBreakMode;
             field.fub_savedParagraphStyle = current;
         }
-        // Give the container room for every line, or only the first one while the focused
-        // field is still folded (otherwise the top of the second row shows under it). Only
-        // touch it when something changed: resizing it invalidates layout, which runs this
-        // pass again.
+        // Give the container room for every line, or only the first one while the field is
+        // not unfolded (otherwise the top of the second row shows under it, also after the
+        // keyboard was dragged away from a folded field). Only touch it when something
+        // changed: resizing it invalidates layout, which runs this pass again.
         CGFloat width = fe.bounds.size.width;
-        BOOL folded = field.isFirstResponder && !field.fub_expanded;
+        BOOL folded = !(IsEditing(field) && field.fub_expanded);
         CGFloat height = folded ? ceil(field.font.lineHeight * 1.5) : 10000;
         if (container.lineBreakMode != NSLineBreakByCharWrapping || container.size.width != width
             || container.size.height != height) {
@@ -441,7 +441,7 @@ void UpdateFieldEditor(UIFieldEditor *fe) {
     if (!ShouldGrow(field)) {
         if (field.fub_extra > 0) ApplyExtra(field, 0);
         SetWrapping(field, fe, NO);
-    } else if (field.isFirstResponder && !field.fub_expanded && !field.fub_keptOpen) {
+    } else if (IsEditing(field) && !field.fub_expanded) {
         // Like Safari 27.3: the first tap selects the URL and keeps the one-line field;
         // it unfolds on the second tap or once the selection changes (typing, cursor
         // moves). Wrapping stays on, with the container one row tall (SetWrapping), so

@@ -217,8 +217,9 @@ static BOOL SelectsAll(UITextField *field) {
 
 - (BOOL)resignFirstResponder {
     // Dragging the suggestions dismisses the keyboard, but Safari keeps editing (list and
-    // Cancel stay): keep the unfolded field instead of folding it to a broken one-liner.
-    BOOL keepOpen = self.isFirstResponder && self.fub_expanded && self.window && KeyboardDismissDragInProgress(self.window);
+    // Cancel stay): keep the field as it is, unfolded or still folded on its first line,
+    // instead of leaving it wrapped to a broken one-liner.
+    BOOL keepOpen = self.isFirstResponder && self.window && KeyboardDismissDragInProgress(self.window);
     // Resigning lays the field out again from inside %orig, before it returns: the flag
     // has to be up by then or that layout folds the field.
     if (keepOpen) self.fub_keptOpen = YES;
