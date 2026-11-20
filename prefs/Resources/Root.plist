@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Debug build. Off: Safari's address bar is stock. Applies the next time the address bar lays out.</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.qn.safarifullurl/settingschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.qn.safarifullurl</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>label</key>
+			<string>Enabled</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>The log file lives in Safari's container (tmp/SafariFullURL.log).</string>
+			<key>label</key>
+			<string>Log</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>shareLog</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Share Log</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>copyLog</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Copy Log</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>clearLog</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Clear Log</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>SafariFullURL</string>
+</dict>
+</plist>

@@ -222,7 +222,10 @@ static BOOL SelectsAll(UITextField *field) {
     BOOL keepOpen = self.isFirstResponder && self.window && KeyboardDismissDragInProgress(self.window);
     // Resigning lays the field out again from inside %orig, before it returns: the flag
     // has to be up by then or that layout folds the field.
-    if (keepOpen) self.fub_keptOpen = YES;
+    if (keepOpen) {
+        self.fub_keptOpen = YES;
+        NoteKeptOpen(self);
+    }
     BOOL resigned = %orig;
     if (keepOpen && resigned) return resigned;
     if (keepOpen) self.fub_keptOpen = NO; // resigning failed, nothing to keep
@@ -328,6 +331,27 @@ static void UnfoldForMenu(UITextInteractionAssistant *assistant) {
 }
 
 %end
+
+%end
+
+@interface _UITextLayoutCanvasView : UIView
+@end
+
+// Text with tall glyphs (Vietnamese: đ, ạ, ế...) makes UIKit grow the canvas holding the text
+// and the caret by a few points on each side, moving it up (y -2.33, height 50.33 instead of
+// 0, 45). The text container origin is pinned (textContainerOriginForTextAlignment: below), so
+// nothing compensates and the text jumps up. Keep the canvas at the top of the field editor;
+// the field editor clips to its own bounds anyway.
+%hook _UITextLayoutCanvasView
+
+- (void)setFrame:(CGRect)frame {
+    if (frame.origin.y != 0 && [self.superview isKindOfClass:%c(UIFieldEditor)]
+        && WrappedFieldInEditor((UIFieldEditor *)self.superview)) {
+        LOG(@"canvas frame %@ kept at y 0", NSStringFromCGRect(frame));
+        frame.origin.y = 0;
+    }
+    %orig(frame);
+}
 
 %end
 

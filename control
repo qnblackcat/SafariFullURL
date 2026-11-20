@@ -1,7 +1,7 @@
 Package: com.qn.safarifullurl
 Name: SafariFullURL
 Depends: mobilesubstrate, firmware (>= 15.0)
-Version: 1.1.2
+Version: 1.2.0
 Architecture: iphoneos-arm
 Description: Show the full, multi-line URL while editing the Safari address bar, just like iOS 27.3
 Maintainer: Qn <qnblackcat@gmail.com>

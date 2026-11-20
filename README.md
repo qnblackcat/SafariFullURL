@@ -2,7 +2,7 @@
 
 [Safari iOS 27.3's full address bar, backported](https://x.com/galloeldo/status/2121305023812641124). While you edit the address bar, the whole URL wraps onto several lines instead of scrolling along a single one. 
 
-Currently only support Safari on iPhone in portrait mode. iPad support is WIP.
+Supports Safari on iPhone in portrait mode. iPad support is experimental and has only been tested on iPadOS 17.
 
 ## How it works
 
@@ -11,6 +11,12 @@ Currently only support Safari on iPhone in portrait mode. iPad support is WIP.
 - **Typing, deleting or moving the caret** grows or shrinks the bar to fit the text.
 - **Long URLs**: the bar shows up to 9 lines, and never takes more than a third of the screen (fewer lines with large text). Longer text scrolls inside the bar and follows the caret.
 - The voice search button is hidden to give the URL more room, and the clear button sits at the bottom-right corner.
+
+## iPad
+
+The URL field sits in the toolbar at the top, so it behaves like the Single Tab layout: the bar grows downward and the tab bar and the page below it move down with it. This works in full screen, in Split View / Slide Over and in resizable windows, in portrait and landscape.
+
+When the window is narrow, Safari switches to its iPhone-style bar and the iPhone behaviour applies. Closing the suggestions (tapping outside them) folds the bar again; there is no Cancel button on iPad.
 
 ## Cancel in the Single Tab layout
 
@@ -33,4 +39,4 @@ make package SAFARIFULLURL_DEBUG=1   # debug: logs to <Safari container>/tmp/Saf
 
 ## License
 
-[GPLv3](LICENSE)
+SafariFullURL is licensed under the GNU General Public License, version 3 only. See [LICENSE](LICENSE).

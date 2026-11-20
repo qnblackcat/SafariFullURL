@@ -55,6 +55,20 @@ BOOL KeyboardDismissDragInProgress(UIWindow *window) {
     return NO;
 }
 
+// The field that kept its unfolded look after the keyboard was dragged away, so whoever notices
+// that editing really ended (the iPad popover going away) can fold it again. Both the iPad's
+// bar and the iPhone-style capsule of a narrow iPad window come through here.
+static __weak UnifiedField *gKeptOpenField;
+
+void NoteKeptOpen(UnifiedField *field) {
+    gKeptOpenField = field;
+}
+
+UnifiedField *KeptOpenField(void) {
+    UnifiedField *field = gKeptOpenField;
+    return field.fub_keptOpen ? field : nil;
+}
+
 // Editing really ended (Cancel, a tapped suggestion, a new text): fold back to stock.
 void EndKeptOpen(UnifiedField *field) {
     if (!field.fub_keptOpen) return;
@@ -209,7 +223,7 @@ BOOL CapsuleUnfoldedAtTop(SFCapsuleView *capsule) {
     if (![content isKindOfClass:%c(SFCapsuleURLField)]) return NO;
     UITextField *textField = ((SFCapsuleURLField *)content).textField;
     if (![textField isKindOfClass:%c(UnifiedField)] || !IsEditing((UnifiedField *)textField)) return NO;
-    return ((UnifiedField *)textField).fub_expanded && CapsuleAtTop(capsule);
+    return FUB_ENABLED() && ((UnifiedField *)textField).fub_expanded && CapsuleAtTop(capsule);
 }
 
 // Stock height of the one-line capsule (Dynamic Type and Bold Text change it).
@@ -217,7 +231,7 @@ BOOL CapsuleUnfoldedAtTop(SFCapsuleView *capsule) {
 // line: the first line is positioned from this before the field ever grows.
 CGFloat BaseHeight(UnifiedField *field) {
     if (field.fub_baseHeight <= 0 && field.fub_extra <= 0) {
-        CGFloat height = CapsuleOf(field).bounds.size.height;
+        CGFloat height = IsPadField(field) ? PadItemHeight(field) : CapsuleOf(field).bounds.size.height;
         if (height > 0) {
             field.fub_baseHeight = height;
             LOG(@"base height %.1f (measured on first use)", height);
@@ -233,11 +247,14 @@ CGFloat TopPad(UnifiedField *field) {
     return (BaseHeight(field) - field.font.lineHeight) / 2;
 }
 
-// Portrait only: the bottom capsule grows upward, the top one (Single Tab layout) downward.
-// In landscape, keep stock behaviour.
+// iPhone (and the iPhone-style capsule of a narrow iPad window): portrait only, the bottom capsule
+// grows upward, the top one (Single Tab layout) downward; in landscape, keep stock behaviour.
+// iPad unified bar: grows downward in every orientation, unless Safari is not using that bar (Pad.xm).
 static BOOL ShouldGrow(UnifiedField *field) {
     UIWindow *window = field.window;
     if (!window) return NO;
+    if (!FUB_ENABLED()) return NO;
+    if (IsPadField(field)) return !PadLayoutUnsupported(field);
     CGSize size = window.bounds.size;
     if (size.width > size.height) return NO;
     return CapsuleOf(field) != nil;
@@ -246,6 +263,12 @@ static BOOL ShouldGrow(UnifiedField *field) {
 // Resize everything around the field after the number of lines changed.
 void ApplyExtra(UnifiedField *field, CGFloat extra) {
     LOG(@"ApplyExtra %p %.1f -> %.1f", field, field.fub_extra, extra);
+    // A field that is already out of the view hierarchy is no longer "an iPad field", but its
+    // bar is still grown.
+    if (IsPadField(field) || PadOwnsField(field)) {
+        ApplyExtraPad(field, extra);
+        return;
+    }
     SFCapsuleView *capsule = CapsuleOf(field);
     if (field.fub_extra <= 0 && extra > 0 && capsule.bounds.size.height > 0) {
         field.fub_baseHeight = capsule.bounds.size.height;

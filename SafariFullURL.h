@@ -1,9 +1,11 @@
 #pragma once
 #import <UIKit/UIKit.h>
 
-// Safari (iPhone, portrait): while editing, the URL field wraps onto several lines and
-// the capsule grows to match: upward with its keyboard backdrop and input accessory spacer
-// in the Tab Bar layout (bottom), downward in the Single Tab layout (top).
+// Safari: while editing, the URL field wraps onto several lines and its bar grows to match.
+// iPhone (portrait): the capsule grows upward with its keyboard backdrop and input accessory
+// spacer in the Tab Bar layout (bottom), downward in the Single Tab layout (top).
+// iPad: the unified bar at the top grows downward and the page moves with it (Pad.xm). A narrow
+// iPad window uses the iPhone-style capsule, which the iPhone code grows.
 
 #ifndef SAFARIFULLURL_DEBUG
 #define SAFARIFULLURL_DEBUG 0
@@ -11,6 +13,14 @@
 
 // Shared between the source files, not exported from the dylib.
 #define FUB_HIDDEN __attribute__((visibility("hidden")))
+
+#if SAFARIFULLURL_DEBUG
+// Debug builds have a settings page with an Enabled switch (Debug.xm reads it); releases are always on.
+FUB_HIDDEN extern BOOL gFUBEnabled;
+#define FUB_ENABLED() gFUBEnabled
+#else
+#define FUB_ENABLED() YES
+#endif
 
 #if SAFARIFULLURL_DEBUG
 // Debug builds log to <Safari container>/tmp/SafariFullURL.log (path is printed via NSLog
@@ -53,6 +63,50 @@ FUB_HIDDEN void FUBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 @property (readonly, weak, nonatomic) UITextInteractionAssistant *interactionAssistant;
 @end
 
+// iPad (Separate tab bar layout): the URL field sits in the selected item of the unified tab bar.
+@interface SFUnifiedBar : UIView
+- (double)expandedHeight;
+@end
+
+@interface UnifiedBar : SFUnifiedBar
+@property (nonatomic, readonly) UITextField *textField;
+- (id)URLOutlinePopoverSourceInfo;
+@end
+
+@interface _SFUIViewPopoverSourceInfo : NSObject
+- (UIView *)popoverSourceView;
+- (CGRect)popoverSourceRect;
+@end
+
+@interface UnifiedTabBar : UIView
+@end
+
+@interface SFUnifiedTabBarItemView : UIView
+@end
+
+@interface SFUnifiedTabBarItemTitleContainerView : UIView
+@end
+
+@interface _SFDynamicBarAnimator : NSObject
+- (double)topBarHeight;
+@end
+
+@interface CatalogViewController : UIViewController
+@end
+
+@interface BrowserController : NSObject
+- (void)updateDynamicBarGeometry;
+@end
+
+@interface BrowserRootViewController : UIViewController
+- (_SFDynamicBarAnimator *)dynamicBarAnimator;
+- (BOOL)usingLoweredBar;
+- (BOOL)usingUnifiedBar;
+- (BOOL)_interfaceFillsScreen;
+- (double)navigationBarDesiredHeight;
+- (CGRect)_frameForNavigationBar;
+@end
+
 @interface SFCapsuleView : UIView
 @property (nonatomic, retain) UIView *contentView;
 @property (nonatomic, retain) UIView *accessoryView;
@@ -81,8 +135,19 @@ FUB_HIDDEN extern CGFloat gTopExtra; // the same for a capsule at the top of the
 FUB_HIDDEN extern BOOL gUpdating;   // caret rect queries can lay out again and call back into us
 
 FUB_HIDDEN BOOL IsEditing(UnifiedField *field);
+
+// Pad.xm (the iPad unified bar; nothing there runs on an iPhone)
+FUB_HIDDEN BOOL FUBIsPad(void);
+FUB_HIDDEN BOOL IsPadField(UnifiedField *field);   // the field is in the unified bar's item, not in a capsule
+FUB_HIDDEN CGFloat PadItemHeight(UnifiedField *field);
+FUB_HIDDEN BOOL PadOwnsField(UnifiedField *field); // it grew the bar and has not folded it yet
+FUB_HIDDEN BOOL PadLayoutUnsupported(UnifiedField *field);
+FUB_HIDDEN void ApplyExtraPad(UnifiedField *field, CGFloat extra);
+
 FUB_HIDDEN BOOL KeyboardDismissDragInProgress(UIWindow *window);
 FUB_HIDDEN void EndKeptOpen(UnifiedField *field);
+FUB_HIDDEN void NoteKeptOpen(UnifiedField *field);
+FUB_HIDDEN UnifiedField *KeptOpenField(void);
 FUB_HIDDEN UnifiedField *GrownField(UITextField *tf);
 FUB_HIDDEN UnifiedField *GrownFieldInEditor(UIFieldEditor *fe);
 FUB_HIDDEN UnifiedField *WrappedFieldInEditor(UIFieldEditor *fe);
